@@ -1,0 +1,9 @@
+{
+  "name": "service-hub-mini",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Small microservices learning project",
+  "scripts": {
+    "consumer": "node consumer.js"
+  }
+}

@@ -1,0 +1,49 @@
+
+services:
+  registry-primary:
+    build: ./registry
+    ports:
+      - "4000:4000" # means computer's port 4000 is mapped to container's port 4000
+    networks:
+      - service-hub
+
+  registry-backup:
+    build: ./registry
+    ports:
+      - "4001:4000"
+    networks:
+      - service-hub
+
+  calculator-service:
+    build: ./calculator-service
+    environment:
+      PORT: 3001
+      REGISTRY_PRIMARY_URL: http://registry-primary:4000
+      REGISTRY_BACKUP_URL: http://registry-backup:4000
+      SERVICE_URL: http://localhost:3001
+    ports:
+      - "3001:3001"
+    depends_on:
+      - registry-primary
+      - registry-backup
+    networks:
+      - service-hub
+
+  text-service:
+    build: ./text-service
+    environment:
+      PORT: 3002
+      REGISTRY_PRIMARY_URL: http://registry-primary:4000
+      REGISTRY_BACKUP_URL: http://registry-backup:4000
+      SERVICE_URL: http://localhost:3002
+    ports:
+      - "3002:3002"
+    depends_on:
+      - registry-primary
+      - registry-backup
+    networks:
+      - service-hub
+
+networks:
+  service-hub:
+    driver: bridge
