@@ -2,22 +2,30 @@ const express = require("express");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3002);
-const REGISTRY_PRIMARY_URL = process.env.REGISTRY_PRIMARY_URL || process.env.REGISTRY_URL || "http://localhost:4000";
-const REGISTRY_BACKUP_URL = process.env.REGISTRY_BACKUP_URL || "http://localhost:4001";
-const REGISTRY_URLS = [REGISTRY_PRIMARY_URL, REGISTRY_BACKUP_URL].filter(Boolean);
+const REGISTRY_PRIMARY_URL =
+  process.env.REGISTRY_PRIMARY_URL ||
+  process.env.REGISTRY_URL ||
+  "http://localhost:4000";
+const REGISTRY_BACKUP_URL =
+  process.env.REGISTRY_BACKUP_URL || "http://localhost:4001";
+const REGISTRY_URLS = [REGISTRY_PRIMARY_URL, REGISTRY_BACKUP_URL].filter(
+  Boolean,
+);
 
 const SERVICE = {
   id: "text-tools",
   name: "Text Tools",
   description: "Counts characters and words in text",
-  url: process.env.SERVICE_URL || `http://localhost:${PORT}`
+  url: process.env.SERVICE_URL || `http://localhost:${PORT}`,
 };
 
 app.get("/", (_req, res) => {
   res.json({ service: SERVICE.name, usage: "/analyze?text=hello%20world" });
 });
 
-app.get("/health", (_req, res) => res.json({ status: "UP", service: SERVICE.id }));
+app.get("/health", (_req, res) =>
+  res.json({ status: "UP", service: SERVICE.id }),
+);
 
 app.get("/analyze", (req, res) => {
   const text = req.query.text;
@@ -28,7 +36,7 @@ app.get("/analyze", (req, res) => {
   res.json({
     text,
     characters: text.length,
-    words: trimmed ? trimmed.split(/\s+/).length : 0
+    words: trimmed ? trimmed.split(/\s+/).length : 0,
   });
 });
 
@@ -38,23 +46,57 @@ async function register() {
       const response = await fetch(`${url}/services`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(SERVICE)
+        body: JSON.stringify(SERVICE),
       });
       if (!response.ok) throw new Error(`Registry returned ${response.status}`);
       console.log(`Registered ${SERVICE.id} with registry at ${url}`);
     } catch (error) {
-      console.error(`Could not register ${SERVICE.id} with ${url}: ${error.message}`);
+      console.error(
+        `Could not register ${SERVICE.id} with ${url}: ${error.message}`,
+      );
     }
   }
+}
+
+let heartbeatInterval = null;
+
+function startHeartbeat() {
+  const HEARTBEAT_INTERVAL_MS = Number(
+    process.env.HEARTBEAT_INTERVAL_MS || 5000,
+  );
+  heartbeatInterval = setInterval(async () => {
+    for (const url of REGISTRY_URLS) {
+      try {
+        const response = await fetch(
+          `${url}/services/${SERVICE.id}/heartbeat`,
+          {
+            method: "POST",
+          },
+        );
+        if (response.ok) {
+          console.log(`[Heartbeat] Heartbeat acknowledged by registry at ${url}`);
+        } else if (response.status === 404) {
+          console.warn(
+            `[Heartbeat] ${SERVICE.id} not found on registry at ${url}. Re-registering...`,
+          );
+          await register();
+        }
+      } catch (error) {
+        // Registry might be temporarily unreachable, ignore error
+      }
+    }
+  }, HEARTBEAT_INTERVAL_MS);
 }
 
 const server = app.listen(PORT, "0.0.0.0", async () => {
   console.log(`Text service listening on port ${PORT}`);
   await register();
+  startHeartbeat();
 });
 
 async function shutdown() {
   console.log("Shutting down text service...");
+  if (heartbeatInterval) clearInterval(heartbeatInterval);
   for (const url of REGISTRY_URLS) {
     try {
       await fetch(`${url}/services/${SERVICE.id}`, { method: "DELETE" });

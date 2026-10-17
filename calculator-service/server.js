@@ -44,13 +44,38 @@ async function register() {
   }
 }
 
+let heartbeatInterval = null;
+
+function startHeartbeat() {
+  const HEARTBEAT_INTERVAL_MS = Number(process.env.HEARTBEAT_INTERVAL_MS || 5000);
+  heartbeatInterval = setInterval(async () => {
+    for (const url of REGISTRY_URLS) {
+      try {
+        const response = await fetch(`${url}/services/${SERVICE.id}/heartbeat`, {
+          method: "POST"
+        });
+        if (response.ok) {
+          console.log(`[Heartbeat] Heartbeat acknowledged by registry at ${url}`);
+        } else if (response.status === 404) {
+          console.warn(`[Heartbeat] ${SERVICE.id} not found on registry at ${url}. Re-registering...`);
+          await register();
+        }
+      } catch (error) {
+        // Registry might be temporarily unreachable, ignore error
+      }
+    }
+  }, HEARTBEAT_INTERVAL_MS);
+}
+
 const server = app.listen(PORT, "0.0.0.0", async () => {
   console.log(`Calculator service listening on port ${PORT}`);
   await register();
+  startHeartbeat();
 });
 
 async function shutdown() {
   console.log("Shutting down calculator service...");
+  if (heartbeatInterval) clearInterval(heartbeatInterval);
   for (const url of REGISTRY_URLS) {
     try {
       await fetch(`${url}/services/${SERVICE.id}`, { method: "DELETE" });
